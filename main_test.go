@@ -9,31 +9,13 @@ import (
 
 func Test_getPath(t *testing.T) {
 	tests := []struct {
-		object        map[string]any
+		object        H
 		path          []string
 		expectedValue any
 		expectedOk    bool
 	}{
-		{
-			map[string]any{
-				"a": map[string]any{
-					"b": 1,
-				},
-			},
-			[]string{"a", "b"},
-			1,
-			true,
-		},
-		{
-			map[string]any{
-				"a": map[string]any{
-					"b": 1,
-				},
-			},
-			[]string{"a", "c"},
-			nil,
-			false,
-		},
+		{object: H{"a": H{"b": 1}}, path: []string{"a", "b"}, expectedValue: 1, expectedOk: true},
+		{object: H{"a": H{"b": 1}}, path: []string{"a", "c"}},
 	}
 
 	for _, test := range tests {
@@ -51,34 +33,10 @@ func Test_lexString(t *testing.T) {
 		expectedIndex  int
 		expectedErr    error
 	}{
-		{
-			"a.b:c",
-			0,
-			"a.b",
-			3,
-			nil,
-		},
-		{
-			`"a b : . 2":12`,
-			0,
-			"a b : . 2",
-			11,
-			nil,
-		},
-		{
-			` a:2`,
-			0,
-			"",
-			0,
-			fmt.Errorf("No string found"),
-		},
-		{
-			` a:2`,
-			1,
-			"a",
-			2,
-			nil,
-		},
+		{input: "a.b:c", expectedString: "a.b", expectedIndex: 3},
+		{input: `"a b : . 2":12`, expectedString: "a b : . 2", expectedIndex: 11},
+		{input: ` a:2`, expectedErr: fmt.Errorf("no string found")},
+		{input: ` a:2`, index: 1, expectedString: "a", expectedIndex: 2},
 	}
 
 	for _, test := range tests {
@@ -95,51 +53,16 @@ func Test_parseQuery(t *testing.T) {
 		expectedQuery query
 		expectedErr   error
 	}{
-		{
-			"a.b:1 c:2",
-			query{
-				[]queryEquals{
-					{
-						key:   []string{"a", "b"},
-						value: "1",
-					},
-					{
-						key:   []string{"c"},
-						value: "2",
-					},
-				},
-			},
-			nil,
-		},
-		{
-			"a:1",
-			query{
-				[]queryEquals{
-					{
-						key:   []string{"a"},
-						value: "1",
-					},
-				},
-			},
-			nil,
-		},
-		{
-			`" a ":" n "`,
-			query{
-				[]queryEquals{
-					{
-						key:   []string{" a "},
-						value: " n ",
-					},
-				},
-			},
-			nil,
-		},
-		{
-			"",
-			query{},
-			nil,
-		},
+		{q: "a.b:1 c:2", expectedQuery: query{
+			ands: []queryComparison{{key: []string{"a", "b"}, value: "1", op: "="}, {key: []string{"c"}, value: "2", op: "="}},
+		}},
+		{q: "a:1", expectedQuery: query{
+			ands: []queryComparison{{key: []string{"a"}, value: "1", op: "="}},
+		}},
+		{q: `" a ":" n "`, expectedQuery: query{
+			ands: []queryComparison{{key: []string{" a "}, value: " n ", op: "="}},
+		}},
+		{q: "", expectedQuery: query{}},
 	}
 
 	for _, test := range tests {
@@ -154,25 +77,17 @@ func Test_parseQuery(t *testing.T) {
 
 func Test_getPathValues(t *testing.T) {
 	tests := []struct {
-		obj         map[string]any
+		obj         H
 		prefix      string
 		expectedPvs []string
 	}{
-		{
-			map[string]any{"a": 2, "b": 4, "c": "hey im here"},
-			"",
-			[]string{"a=2", "b=4", "c=hey im here"},
-		},
-		{
-			map[string]any{"a": map[string]any{"12": "19"}},
-			"",
-			[]string{"a.12=19"},
-		},
+		{obj: H{"a": 2, "b": 4, "c": "hey im here"}, expectedPvs: []string{"a=2", "b=4", "c=hey im here"}},
+		{obj: H{"a": H{"12": "19"}}, expectedPvs: []string{"a=map[12:19]"}},
 	}
 
 	for _, test := range tests {
 		pvs := getPathValues(test.obj, test.prefix)
-		assert.Equal(t, len(pvs), len(test.expectedPvs))
-		assert.Equal(t, pvs, test.expectedPvs)
+		assert.Equal(t, len(test.expectedPvs), len(pvs))
+		assert.Equal(t, test.expectedPvs, pvs)
 	}
 }

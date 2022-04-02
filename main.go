@@ -5,20 +5,45 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"reflect"
 	"strconv"
 	"strings"
 	"unicode"
 
+	"github.com/bingoohuang/gg/pkg/fla9"
+	"github.com/bingoohuang/gg/pkg/iox"
+	"github.com/bingoohuang/gg/pkg/ss"
+	"github.com/bingoohuang/gg/pkg/uid"
+
 	"github.com/cockroachdb/pebble"
-	"github.com/google/uuid"
 	"github.com/julienschmidt/httprouter"
 )
 
-func jsonResponse(w http.ResponseWriter, body map[string]any, err error) {
-	data := map[string]any{
-		"body":   body,
-		"status": "ok",
+func main() {
+	port := 0
+	fla9.IntVar(&port, "port,p", 8080, "Listen port")
+	fla9.Parse()
+
+	s, err := newServer("docdb.data", port)
+	if err != nil {
+		log.Fatal(err)
 	}
+	defer iox.Close(s.db)
+
+	router := httprouter.New()
+	router.POST("/docs", s.addDocument)
+	router.GET("/docs", s.searchDocuments)
+	router.GET("/docs/:id", s.getDocument)
+
+	log.Printf("Listening on %d", s.port)
+	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", s.port), router))
+}
+
+// H is alias for map[string]any.
+type H map[string]any
+
+func jsonResponse(w http.ResponseWriter, body H, err error) {
+	data := H{"body": body, "status": "ok"}
 
 	if err == nil {
 		w.WriteHeader(http.StatusOK)
@@ -29,42 +54,35 @@ func jsonResponse(w http.ResponseWriter, body map[string]any, err error) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 
-	enc := json.NewEncoder(w)
-	err = enc.Encode(data)
-	if err != nil {
-		// TODO: set up panic handler?
-		panic(err)
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		log.Printf("encode json response failed: %v", err)
 	}
 }
 
 type server struct {
 	db      *pebble.DB // Primary data
 	indexDb *pebble.DB // Index data
-	port    string
+	port    int
 }
 
-func newServer(database string, port string) (*server, error) {
-	s := server{db: nil, port: port}
-	var err error
-	s.db, err = pebble.Open(database, &pebble.Options{})
-	if err != nil {
+func newServer(database string, port int) (s *server, err error) {
+	s = &server{db: nil, port: port}
+	if s.db, err = pebble.Open(database, &pebble.Options{}); err != nil {
 		return nil, err
 	}
 
 	s.indexDb, err = pebble.Open(database+".index", &pebble.Options{})
-	return &s, err
+	return
 }
 
 // Ignores arrays
-func getPathValues(obj map[string]any, prefix string) []string {
-	var pvs []string
+func getPathValues(obj H, prefix string) (pvs []string) {
 	for key, val := range obj {
 		switch t := val.(type) {
-		case map[string]any:
+		case H:
 			pvs = append(pvs, getPathValues(t, key)...)
 			continue
-		case []interface{}:
-			// Can't handle arrays
+		case []interface{}: // Can't handle arrays
 			continue
 		}
 
@@ -78,7 +96,7 @@ func getPathValues(obj map[string]any, prefix string) []string {
 	return pvs
 }
 
-func (s server) index(id string, document map[string]any) {
+func (s server) index(id string, document H) {
 	pv := getPathValues(document, "")
 
 	for _, pathValue := range pv {
@@ -91,44 +109,28 @@ func (s server) index(id string, document map[string]any) {
 			idsString = []byte(id)
 		} else {
 			ids := strings.Split(string(idsString), ",")
-
-			found := false
-			for _, existingId := range ids {
-				if id == existingId {
-					found = true
-				}
-			}
-
-			if !found {
+			if found := ss.AnyOf(id, ids...); !found {
 				idsString = append(idsString, []byte(","+id)...)
 			}
 		}
 
 		if closer != nil {
-			err = closer.Close()
-			if err != nil {
-				log.Printf("Could not close: %s", err)
-			}
+			iox.Close(closer)
 		}
-		err = s.indexDb.Set([]byte(pathValue), idsString, pebble.Sync)
-		if err != nil {
+		if err = s.indexDb.Set([]byte(pathValue), idsString, pebble.Sync); err != nil {
 			log.Printf("Could not update index: %s", err)
 		}
 	}
 }
 
-func (s server) addDocument(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-	dec := json.NewDecoder(r.Body)
-	var document map[string]any
-	err := dec.Decode(&document)
-	if err != nil {
+func (s server) addDocument(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	var document H
+	if err := json.NewDecoder(r.Body).Decode(&document); err != nil {
 		jsonResponse(w, nil, err)
 		return
 	}
 
-	// New unique id for the document
-	id := uuid.New().String()
-
+	id := uid.New().String() // New ksuid for the document
 	s.index(id, document)
 
 	bs, err := json.Marshal(document)
@@ -142,9 +144,7 @@ func (s server) addDocument(w http.ResponseWriter, r *http.Request, ps httproute
 		return
 	}
 
-	jsonResponse(w, map[string]any{
-		"id": id,
-	}, nil)
+	jsonResponse(w, H{"id": id}, nil)
 }
 
 type queryComparison struct {
@@ -157,10 +157,10 @@ type query struct {
 	ands []queryComparison
 }
 
-func getPath(doc map[string]any, parts []string) (any, bool) {
+func getPath(doc H, parts []string) (any, bool) {
 	var docSegment any = doc
 	for _, part := range parts {
-		m, ok := docSegment.(map[string]any)
+		m, ok := docSegment.(H)
 		if !ok {
 			return nil, false
 		}
@@ -173,7 +173,7 @@ func getPath(doc map[string]any, parts []string) (any, bool) {
 	return docSegment, true
 }
 
-func (q query) match(doc map[string]any) bool {
+func (q query) match(doc H) bool {
 	for _, argument := range q.ands {
 		value, ok := getPath(doc, argument.key)
 		if !ok {
@@ -182,8 +182,7 @@ func (q query) match(doc map[string]any) bool {
 
 		// Handle equality
 		if argument.op == "=" {
-			match := fmt.Sprintf("%v", value) == argument.value
-			if !match {
+			if match := fmt.Sprintf("%v", value) == argument.value; !match {
 				return false
 			}
 
@@ -198,33 +197,14 @@ func (q query) match(doc map[string]any) bool {
 
 		var left float64
 		switch t := value.(type) {
-		case float64:
-			left = t
-		case float32:
-			left = float64(t)
-		case uint:
-			left = float64(t)
-		case uint8:
-			left = float64(t)
-		case uint16:
-			left = float64(t)
-		case uint32:
-			left = float64(t)
-		case uint64:
-			left = float64(t)
-		case int:
-			left = float64(t)
-		case int8:
-			left = float64(t)
-		case int16:
-			left = float64(t)
-		case int32:
-			left = float64(t)
-		case int64:
-			left = float64(t)
+		case float32, float64:
+			left = reflect.ValueOf(value).Float()
+		case uint, uint8, uint16, uint32, uint64:
+			left = float64(reflect.ValueOf(value).Uint())
+		case int, int8, int16, int32, int64:
+			left = float64(reflect.ValueOf(value).Int())
 		case string:
-			left, err = strconv.ParseFloat(t, 64)
-			if err != nil {
+			if left, err = strconv.ParseFloat(t, 64); err != nil {
 				return false
 			}
 		default:
@@ -269,7 +249,7 @@ func lexString(input []rune, index int) (string, int, error) {
 		}
 
 		if !foundEnd {
-			return "", index, fmt.Errorf("Expected end of quoted string")
+			return "", index, fmt.Errorf("expected end of quoted string")
 		}
 
 		return string(s), index + 1, nil
@@ -289,7 +269,7 @@ func lexString(input []rune, index int) (string, int, error) {
 	}
 
 	if len(s) == 0 {
-		return "", index, fmt.Errorf("No string found")
+		return "", index, fmt.Errorf("no string found")
 	}
 
 	return string(s), index, nil
@@ -301,10 +281,9 @@ func parseQuery(q string) (*query, error) {
 		return &query{}, nil
 	}
 
-	i := 0
 	var parsed query
-	var qRune = []rune(q)
-	for i < len(qRune) {
+	qRune := []rune(q)
+	for i := 0; i < len(qRune); {
 		// Eat whitespace
 		for unicode.IsSpace(qRune[i]) {
 			i++
@@ -312,11 +291,11 @@ func parseQuery(q string) (*query, error) {
 
 		key, nextIndex, err := lexString(qRune, i)
 		if err != nil {
-			return nil, fmt.Errorf("Expected valid key, got [%s]: `%s`", err, q[nextIndex:])
+			return nil, fmt.Errorf("expected valid key, got [%s]: `%s`", err, q[nextIndex:])
 		}
 
 		if q[nextIndex] != ':' {
-			return nil, fmt.Errorf("Expected colon at %d, got: `%s`", nextIndex, q[nextIndex:])
+			return nil, fmt.Errorf("expected colon at %d, got: `%s`", nextIndex, q[nextIndex:])
 		}
 		i = nextIndex + 1
 
@@ -328,7 +307,7 @@ func parseQuery(q string) (*query, error) {
 
 		value, nextIndex, err := lexString(qRune, i)
 		if err != nil {
-			return nil, fmt.Errorf("Expected valid value, got [%s]: `%s`", err, q[nextIndex:])
+			return nil, fmt.Errorf("expected valid value, got [%s]: `%s`", err, q[nextIndex:])
 		}
 		i = nextIndex
 
@@ -339,14 +318,14 @@ func parseQuery(q string) (*query, error) {
 	return &parsed, nil
 }
 
-func (s server) getDocumentById(id []byte) (map[string]any, error) {
+func (s server) getDocumentByID(id []byte) (H, error) {
 	valBytes, closer, err := s.db.Get(id)
 	if err != nil {
 		return nil, err
 	}
-	defer closer.Close()
+	defer iox.Close(closer)
 
-	var document map[string]any
+	var document H
 	err = json.Unmarshal(valBytes, &document)
 	return document, err
 }
@@ -354,11 +333,9 @@ func (s server) getDocumentById(id []byte) (map[string]any, error) {
 func (s server) lookup(pathValue string) ([]string, error) {
 	idsString, closer, err := s.indexDb.Get([]byte(pathValue))
 	if err != nil && err != pebble.ErrNotFound {
-		return nil, fmt.Errorf("Could not look up pathvalue [%#v]: %s", pathValue, err)
+		return nil, fmt.Errorf("could not look up pathvalue [%#v]: %s", pathValue, err)
 	}
-	if closer != nil {
-		defer closer.Close()
-	}
+	defer iox.Close(closer)
 
 	if len(idsString) == 0 {
 		return nil, nil
@@ -367,7 +344,7 @@ func (s server) lookup(pathValue string) ([]string, error) {
 	return strings.Split(string(idsString), ","), nil
 }
 
-func (s server) searchDocuments(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+func (s server) searchDocuments(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	q, err := parseQuery(r.URL.Query().Get("q"))
 	if err != nil {
 		jsonResponse(w, nil, err)
@@ -388,8 +365,7 @@ func (s server) searchDocuments(w http.ResponseWriter, r *http.Request, ps httpr
 			}
 
 			for _, id := range ids {
-				_, ok := idsArgumentCount[id]
-				if !ok {
+				if _, ok := idsArgumentCount[id]; !ok {
 					idsArgumentCount[id] = 0
 				}
 
@@ -413,83 +389,54 @@ func (s server) searchDocuments(w http.ResponseWriter, r *http.Request, ps httpr
 	}
 	if len(idsInAll) > 0 {
 		for _, id := range idsInAll {
-			document, err := s.getDocumentById([]byte(id))
+			doc, err := s.getDocumentByID([]byte(id))
 			if err != nil {
 				jsonResponse(w, nil, err)
 				return
 			}
 
-			if !isRange || q.match(document) {
-				documents = append(documents, map[string]any{
-					"id":   id,
-					"body": document,
-				})
+			if !isRange || q.match(doc) {
 			}
 		}
 	} else {
 		iter := s.db.NewIter(nil)
-		defer iter.Close()
+		defer iox.Close(iter)
 		for iter.First(); iter.Valid(); iter.Next() {
-			var document map[string]any
-			err = json.Unmarshal(iter.Value(), &document)
+			var doc H
+			err = json.Unmarshal(iter.Value(), &doc)
 			if err != nil {
 				jsonResponse(w, nil, err)
 				return
 			}
 
-			if q.match(document) {
-				documents = append(documents, map[string]any{
-					"id":   string(iter.Key()),
-					"body": document,
-				})
+			if q.match(doc) {
+				documents = append(documents, H{"id": string(iter.Key()), "body": doc})
 			}
 		}
 	}
 
-	jsonResponse(w, map[string]any{"documents": documents, "count": len(documents)}, nil)
+	jsonResponse(w, H{"documents": documents, "count": len(documents)}, nil)
 }
 
-func (s server) getDocument(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+func (s server) getDocument(w http.ResponseWriter, _ *http.Request, ps httprouter.Params) {
 	id := ps.ByName("id")
-
-	document, err := s.getDocumentById([]byte(id))
+	doc, err := s.getDocumentByID([]byte(id))
 	if err != nil {
 		jsonResponse(w, nil, err)
 		return
 	}
 
-	jsonResponse(w, map[string]any{
-		"document": document,
-	}, nil)
+	jsonResponse(w, H{"document": doc}, nil)
 }
 
 func (s server) reindex() {
 	iter := s.db.NewIter(nil)
-	defer iter.Close()
+	defer iox.Close(iter)
 	for iter.First(); iter.Valid(); iter.Next() {
-		var document map[string]any
-		err := json.Unmarshal(iter.Value(), &document)
-		if err != nil {
+		var document H
+		if err := json.Unmarshal(iter.Value(), &document); err != nil {
 			log.Printf("Unable to parse bad document, %s: %s", string(iter.Key()), err)
 		}
 		s.index(string(iter.Key()), document)
 	}
-}
-
-func main() {
-	s, err := newServer("docdb.data", "8080")
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer s.db.Close()
-
-	s.reindex()
-
-	router := httprouter.New()
-	router.POST("/docs", s.addDocument)
-	router.GET("/docs", s.searchDocuments)
-	router.GET("/docs/:id", s.getDocument)
-
-	log.Println("Listening on " + s.port)
-	log.Fatal(http.ListenAndServe(":"+s.port, router))
 }
