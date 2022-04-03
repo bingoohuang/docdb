@@ -7,7 +7,7 @@ A simple Go document database. [blog: Writing a document database from scratch i
 1. `make install`
 2. Startup: `docdb`
 3. download [movie.json](https://github.com/prust/wikipedia-movie-data): `gurl https://github.com/prust/wikipedia-movie-data/raw/master/movies.json -d`
-4. load movie.json into docdb: `sh scripts/load_array.sh movies.json`, 28795 movie json, took 39m51s on my laptop.
+4. load movie.json into docdb: `sh scripts/load_array.sh movies.json`, 28795 (`jj -L -i movies.json` or `jq length movies.json`) movie json, took 39m51s on my laptop.
 
 Then in another terminal:
 
