@@ -31,9 +31,9 @@ func main() {
 	defer iox.Close(s.db)
 
 	router := httprouter.New()
-	router.POST("/docs", s.addDocument)
-	router.GET("/docs", s.searchDocuments)
-	router.GET("/docs/:id", s.getDocument)
+	router.POST("/docs", wrapHandler(s.addDocument))
+	router.GET("/docs", wrapHandler(s.searchDocuments))
+	router.GET("/docs/:id", wrapHandler(s.getDocument))
 
 	log.Printf("Listening on %d", s.port)
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", s.port), router))
@@ -42,21 +42,22 @@ func main() {
 // H is alias for map[string]any.
 type H map[string]any
 
-func jsonResponse(w http.ResponseWriter, body H, err error) {
-	data := H{"body": body, "status": "ok"}
+func jsonResponseError(w http.ResponseWriter, err error) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(http.StatusBadRequest)
 
-	if err == nil {
-		w.WriteHeader(http.StatusOK)
-	} else {
-		data["status"] = "error"
-		data["error"] = err.Error()
-		w.WriteHeader(http.StatusBadRequest)
-	}
-	w.Header().Set("Content-Type", "application/json")
-
-	if err := json.NewEncoder(w).Encode(data); err != nil {
+	if err := json.NewEncoder(w).Encode(H{"status": "error", "error": err.Error()}); err != nil {
 		log.Printf("encode json response failed: %v", err)
 	}
+}
+
+func jsonResponse(w http.ResponseWriter, body H) error {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+
+	if err := json.NewEncoder(w).Encode(H{"body": body, "status": "ok"}); err != nil {
+		log.Printf("encode json response failed: %v", err)
+	}
+	return nil
 }
 
 type server struct {
@@ -123,28 +124,24 @@ func (s server) index(id string, document H) {
 	}
 }
 
-func (s server) addDocument(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-	var document H
-	if err := json.NewDecoder(r.Body).Decode(&document); err != nil {
-		jsonResponse(w, nil, err)
-		return
+func (s server) addDocument(w http.ResponseWriter, r *http.Request, _ httprouter.Params) error {
+	var doc H
+	if err := json.NewDecoder(r.Body).Decode(&doc); err != nil {
+		return err
 	}
 
 	id := uid.New().String() // New ksuid for the document
-	s.index(id, document)
+	s.index(id, doc)
 
-	bs, err := json.Marshal(document)
+	bs, err := json.Marshal(doc)
 	if err != nil {
-		jsonResponse(w, nil, err)
-		return
+		return err
 	}
-	err = s.db.Set([]byte(id), bs, pebble.Sync)
-	if err != nil {
-		jsonResponse(w, nil, err)
-		return
+	if err := s.db.Set([]byte(id), bs, pebble.Sync); err != nil {
+		return err
 	}
 
-	jsonResponse(w, H{"id": id}, nil)
+	return jsonResponse(w, H{"id": id})
 }
 
 type queryComparison struct {
@@ -344,11 +341,17 @@ func (s server) lookup(pathValue string) ([]string, error) {
 	return strings.Split(string(idsString), ","), nil
 }
 
-func (s server) searchDocuments(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+func wrapHandler(h func(http.ResponseWriter, *http.Request, httprouter.Params) error) func(http.ResponseWriter, *http.Request, httprouter.Params) {
+	return func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		if err := h(w, r, p); err != nil {
+			jsonResponseError(w, err)
+		}
+	}
+}
+func (s server) searchDocuments(w http.ResponseWriter, r *http.Request, _ httprouter.Params) error {
 	q, err := parseQuery(r.URL.Query().Get("q"))
 	if err != nil {
-		jsonResponse(w, nil, err)
-		return
+		return err
 	}
 
 	isRange := false
@@ -360,8 +363,7 @@ func (s server) searchDocuments(w http.ResponseWriter, r *http.Request, _ httpro
 
 			ids, err := s.lookup(fmt.Sprintf("%s=%v", strings.Join(argument.key, "."), argument.value))
 			if err != nil {
-				jsonResponse(w, nil, err)
-				return
+				return err
 			}
 
 			for _, id := range ids {
@@ -391,8 +393,7 @@ func (s server) searchDocuments(w http.ResponseWriter, r *http.Request, _ httpro
 		for _, id := range idsInAll {
 			doc, err := s.getDocumentByID([]byte(id))
 			if err != nil {
-				jsonResponse(w, nil, err)
-				return
+				return err
 			}
 
 			if !isRange || q.match(doc) {
@@ -403,10 +404,8 @@ func (s server) searchDocuments(w http.ResponseWriter, r *http.Request, _ httpro
 		defer iox.Close(iter)
 		for iter.First(); iter.Valid(); iter.Next() {
 			var doc H
-			err = json.Unmarshal(iter.Value(), &doc)
-			if err != nil {
-				jsonResponse(w, nil, err)
-				return
+			if err := json.Unmarshal(iter.Value(), &doc); err != nil {
+				return err
 			}
 
 			if q.match(doc) {
@@ -415,28 +414,27 @@ func (s server) searchDocuments(w http.ResponseWriter, r *http.Request, _ httpro
 		}
 	}
 
-	jsonResponse(w, H{"documents": documents, "count": len(documents)}, nil)
+	return jsonResponse(w, H{"documents": documents, "count": len(documents)})
 }
 
-func (s server) getDocument(w http.ResponseWriter, _ *http.Request, ps httprouter.Params) {
+func (s server) getDocument(w http.ResponseWriter, _ *http.Request, ps httprouter.Params) error {
 	id := ps.ByName("id")
 	doc, err := s.getDocumentByID([]byte(id))
 	if err != nil {
-		jsonResponse(w, nil, err)
-		return
+		return err
 	}
 
-	jsonResponse(w, H{"document": doc}, nil)
+	return jsonResponse(w, H{"document": doc})
 }
 
 func (s server) reindex() {
 	iter := s.db.NewIter(nil)
 	defer iox.Close(iter)
 	for iter.First(); iter.Valid(); iter.Next() {
-		var document H
-		if err := json.Unmarshal(iter.Value(), &document); err != nil {
+		var doc H
+		if err := json.Unmarshal(iter.Value(), &doc); err != nil {
 			log.Printf("Unable to parse bad document, %s: %s", string(iter.Key()), err)
 		}
-		s.index(string(iter.Key()), document)
+		s.index(string(iter.Key()), doc)
 	}
 }
