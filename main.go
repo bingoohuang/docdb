@@ -306,8 +306,8 @@ func parseQuery(q string) (*query, error) {
 		}
 		i = nextIndex
 
-		argument := queryComparison{key: strings.Split(key, "."), value: value, op: op}
-		parsed.ands = append(parsed.ands, argument)
+		arg := queryComparison{key: strings.Split(key, "."), value: value, op: op}
+		parsed.ands = append(parsed.ands, arg)
 	}
 
 	return &parsed, nil
@@ -315,10 +315,10 @@ func parseQuery(q string) (*query, error) {
 
 func (s server) getDocumentByID(id []byte) (H, error) {
 	valBytes, closer, err := s.db.Get(id)
+	defer iox.Close(closer)
 	if err != nil {
 		return nil, err
 	}
-	defer iox.Close(closer)
 
 	return UnmarshalJSON(valBytes)
 }
@@ -347,7 +347,8 @@ func wrapHandler(h func(http.ResponseWriter, *http.Request, httprouter.Params) e
 	}
 }
 func (s server) searchDocs(w http.ResponseWriter, r *http.Request, _ httprouter.Params) error {
-	q, err := parseQuery(r.URL.Query().Get("q"))
+	qQuery := r.URL.Query().Get("q")
+	q, err := parseQuery(qQuery)
 	if err != nil {
 		return err
 	}
@@ -391,6 +392,7 @@ func (s server) searchDocs(w http.ResponseWriter, r *http.Request, _ httprouter.
 			}
 
 			if !isRange || q.match(doc) {
+				documents = append(documents, H{"id": id, "body": doc})
 			}
 		}
 	} else {

@@ -11,6 +11,7 @@ A simple Go document database. [blog: Writing a document database from scratch i
    1. 28795 (`jj -L -i movies.json` or `jq length movies.json`) movie json, took 39m51s on my laptop.
    1. `jq -c '.[]' movies.json | gurl :8080/docs -n0 -pb -r`, took 34m47s on my laptop.
    1. Asynchronous version, took 7s on my laptop.
+5. query: `gurl :8080/docs 'q==title:"New Life Rescue"'`
 
 Then in another terminal:
 
