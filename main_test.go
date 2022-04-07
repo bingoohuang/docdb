@@ -53,15 +53,9 @@ func Test_parseQuery(t *testing.T) {
 		expectedQuery query
 		expectedErr   error
 	}{
-		{q: "a.b:1 c:2", expectedQuery: query{
-			ands: []queryComparison{{key: []string{"a", "b"}, value: "1", op: "="}, {key: []string{"c"}, value: "2", op: "="}},
-		}},
-		{q: "a:1", expectedQuery: query{
-			ands: []queryComparison{{key: []string{"a"}, value: "1", op: "="}},
-		}},
-		{q: `" a ":" n "`, expectedQuery: query{
-			ands: []queryComparison{{key: []string{" a "}, value: " n ", op: "="}},
-		}},
+		{q: "a.b:1 c:2", expectedQuery: query{ands: []queryComparison{{key: []string{"a", "b"}, value: "1", op: "="}, {key: []string{"c"}, value: "2", op: "="}}}},
+		{q: "a:1", expectedQuery: query{ands: []queryComparison{{key: []string{"a"}, value: "1", op: "="}}}},
+		{q: `" a ":" n "`, expectedQuery: query{ands: []queryComparison{{key: []string{" a "}, value: " n ", op: "="}}}},
 		{q: "", expectedQuery: query{}},
 	}
 
@@ -82,7 +76,7 @@ func Test_getPathValues(t *testing.T) {
 		expectedPvs []string
 	}{
 		{obj: H{"a": 2, "b": 4, "c": "hey im here"}, expectedPvs: []string{"a=2", "b=4", "c=hey im here"}},
-		{obj: H{"a": H{"12": "19"}}, expectedPvs: []string{"a=map[12:19]"}},
+		{obj: H{"a": H{"12": "19"}}, expectedPvs: []string{"a.12=19"}},
 	}
 
 	for _, test := range tests {

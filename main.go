@@ -24,7 +24,7 @@ func main() {
 	pPort := fla9.Int("port,p", 8080, "Listen port")
 	fla9.Parse()
 
-	s, err := newServer("docdb.data", *pPort)
+	s, err := newServer("docdb.data")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -35,8 +35,8 @@ func main() {
 	router.GET("/docs", wrapHandler(s.searchDocs))
 	router.GET("/docs/:id", wrapHandler(s.getDoc))
 
-	log.Printf("Listening on %d", s.port)
-	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", s.port), router))
+	log.Printf("Listening on %d", *pPort)
+	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", *pPort), router))
 }
 
 // H is alias for map[string]any.
@@ -60,17 +60,16 @@ func jsonResponse(w http.ResponseWriter, body H) error {
 type server struct {
 	db          *pebble.DB // Primary data
 	indexDb     *pebble.DB // Index data
-	port        int
 	flushNotify chan struct{}
 }
 
-func newServer(database string, port int) (s *server, err error) {
-	s = &server{db: nil, port: port}
-	if s.db, err = pebble.Open(database, &pebble.Options{}); err != nil {
+func newServer(db string) (s *server, err error) {
+	s = &server{}
+	if s.db, err = pebble.Open(db, &pebble.Options{}); err != nil {
 		return nil, err
 	}
 
-	s.indexDb, err = pebble.Open(database+".index", &pebble.Options{})
+	s.indexDb, err = pebble.Open(db+".index", &pebble.Options{})
 	if err == nil {
 		go s.flushing()
 	}
@@ -347,18 +346,17 @@ func wrapHandler(h func(http.ResponseWriter, *http.Request, httprouter.Params) e
 	}
 }
 func (s server) searchDocs(w http.ResponseWriter, r *http.Request, _ httprouter.Params) error {
-	qQuery := r.URL.Query().Get("q")
-	q, err := parseQuery(qQuery)
+	q, err := parseQuery(r.URL.Query().Get("q"))
 	if err != nil {
 		return err
 	}
 
 	isRange := false
-	idsArgumentCount := map[string]int{}
-	nonRangeArguments := 0
+	idsArgCount := map[string]int{}
+	nonRangeArgs := 0
 	for _, arg := range q.ands {
 		if arg.op == "=" {
-			nonRangeArguments++
+			nonRangeArgs++
 
 			ids, err := s.lookup(fmt.Sprintf("%s=%v", strings.Join(arg.key, "."), arg.value))
 			if err != nil {
@@ -366,7 +364,7 @@ func (s server) searchDocs(w http.ResponseWriter, r *http.Request, _ httprouter.
 			}
 
 			for _, id := range ids {
-				idsArgumentCount[id]++
+				idsArgCount[id]++
 			}
 		} else {
 			isRange = true
@@ -374,13 +372,13 @@ func (s server) searchDocs(w http.ResponseWriter, r *http.Request, _ httprouter.
 	}
 
 	var idsInAll []string
-	for id, count := range idsArgumentCount {
-		if count == nonRangeArguments {
+	for id, count := range idsArgCount {
+		if count == nonRangeArgs {
 			idsInAll = append(idsInAll, id)
 		}
 	}
 
-	var documents []any
+	var docs []any
 	if r.URL.Query().Get("skipIndex") == "true" {
 		idsInAll = nil
 	}
@@ -392,7 +390,7 @@ func (s server) searchDocs(w http.ResponseWriter, r *http.Request, _ httprouter.
 			}
 
 			if !isRange || q.match(doc) {
-				documents = append(documents, H{"id": id, "body": doc})
+				docs = append(docs, H{"id": id, "body": doc})
 			}
 		}
 	} else {
@@ -405,12 +403,12 @@ func (s server) searchDocs(w http.ResponseWriter, r *http.Request, _ httprouter.
 			}
 
 			if q.match(doc) {
-				documents = append(documents, H{"id": string(iter.Key()), "body": doc})
+				docs = append(docs, H{"id": string(iter.Key()), "body": doc})
 			}
 		}
 	}
 
-	return jsonResponse(w, H{"documents": documents, "count": len(documents)})
+	return jsonResponse(w, H{"documents": docs, "count": len(docs)})
 }
 
 func (s server) getDoc(w http.ResponseWriter, _ *http.Request, ps httprouter.Params) error {
@@ -435,7 +433,10 @@ func (s server) reindex() {
 }
 
 func (s *server) notifyFlush() {
-	s.flushNotify <- struct{}{}
+	select {
+	case s.flushNotify <- struct{}{}:
+	default: // ignore
+	}
 }
 
 func (s *server) flushing() {
@@ -460,8 +461,6 @@ func (s *server) flushing() {
 }
 
 func (s *server) flush() {
-	err := s.db.Flush()
-	log.Printf("flush db error: %v", err)
-	err = s.indexDb.Flush()
-	log.Printf("flush index error: %v", err)
+	log.Printf("flush db result: %v", s.db.Flush())
+	log.Printf("flush index result: %v", s.indexDb.Flush())
 }
