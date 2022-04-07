@@ -244,10 +244,12 @@ func (s server) index(id string, doc H, reindex bool) {
 			idsString = []byte(id)
 		} else if reindex {
 			ids := strings.Split(string(idsString), ",")
+			idsString = append([]byte{}, idsString...) // recreate idsString
 			if found := ss.AnyOf(id, ids...); !found {
 				idsString = append(idsString, []byte(","+id)...)
 			}
 		} else {
+			idsString = append([]byte{}, idsString...) // recreate idsString
 			idsString = append(idsString, []byte(","+id)...)
 		}
 
