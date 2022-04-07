@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"reflect"
@@ -15,6 +16,8 @@ import (
 	"github.com/bingoohuang/gg/pkg/iox"
 	"github.com/bingoohuang/gg/pkg/ss"
 	"github.com/bingoohuang/gg/pkg/uid"
+	"github.com/flower-corp/lotusdb"
+	"go.uber.org/multierr"
 
 	"github.com/cockroachdb/pebble"
 	"github.com/julienschmidt/httprouter"
@@ -22,13 +25,29 @@ import (
 
 func main() {
 	pPort := fla9.Int("port,p", 8080, "Listen port")
+	pImpl := fla9.String("impl", "pebble", "pebble/lotusdb")
 	fla9.Parse()
 
-	s, err := newServer("docdb.data")
-	if err != nil {
-		log.Fatal(err)
+	var db DB
+	var path string
+
+	switch *pImpl {
+	case "pebble", "p":
+		db = &pebbleDB{}
+		path = "pebble"
+	case "lotusdb", "l":
+		db = &lotusdbDB{}
+		path = "lotusdb"
+	default:
+		log.Fatalf("unknown impl %s", *pImpl)
 	}
-	defer iox.Close(s.db)
+	if err := db.Open("docdb." + path); err != nil {
+		log.Fatalf("open docdb.%s failed: %v", path, err)
+	}
+
+	defer iox.Close(db)
+
+	s := &server{DB: db, flushNotify: make(chan struct{})}
 
 	router := httprouter.New()
 	router.POST("/docs", wrapHandler(s.addDoc))
@@ -57,24 +76,138 @@ func jsonResponse(w http.ResponseWriter, body H) error {
 	return nil
 }
 
-type server struct {
-	db          *pebble.DB // Primary data
-	indexDb     *pebble.DB // Index data
-	flushNotify chan struct{}
+type DB interface {
+	io.Closer
+
+	Open(path string) error
+	GetIndex(key []byte) ([]byte, io.Closer, error)
+	SetIndex(key, val []byte) error
+	GetVal(key []byte) ([]byte, io.Closer, error)
+	SetVal(key, val []byte) error
+	Walk(walker func(key, val []byte) error) error
+	Flush()
 }
 
-func newServer(db string) (s *server, err error) {
-	s = &server{}
-	if s.db, err = pebble.Open(db, &pebble.Options{}); err != nil {
-		return nil, err
-	}
+type lotusdbDB struct {
+	path    string
+	db      *lotusdb.LotusDB // Primary data
+	indexDb *lotusdb.LotusDB // Index data
+}
 
-	s.indexDb, err = pebble.Open(db+".index", &pebble.Options{})
-	if err == nil {
-		go s.flushing()
-	}
+// Walk implements DB
+func (s *lotusdbDB) Walk(walker func(key []byte, val []byte) error) error {
+	return nil
+}
 
+// GetVal implements DB
+func (s *lotusdbDB) GetVal(key []byte) (val []byte, closer io.Closer, err error) {
+	val, err = s.db.Get(key)
 	return
+}
+
+// SetVal implements DB
+func (s *lotusdbDB) SetVal(key []byte, val []byte) error { return s.db.Put(key, val) }
+
+// SetIndex implements DB
+func (s *lotusdbDB) SetIndex(key, val []byte) error { return s.indexDb.Put(key, val) }
+
+// GetIndex implements DB
+func (s *lotusdbDB) GetIndex(key []byte) (val []byte, closer io.Closer, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("recover from key %s", key)
+		}
+	}()
+
+	val, err = s.indexDb.Get(key)
+	return
+}
+
+// Close implements DB
+func (s *lotusdbDB) Close() error { return multierr.Append(s.db.Close(), s.indexDb.Close()) }
+
+// Flush implements DB
+func (s *lotusdbDB) Flush() {
+	s.flush(s.db, s.path)
+	s.flush(s.indexDb, s.path+".index")
+}
+
+func (s *lotusdbDB) flush(db *lotusdb.LotusDB, path string) {
+	cfOpts := lotusdb.DefaultOptions(path).CfOpts
+	cfOpts.CfName = lotusdb.DefaultColumnFamilyName
+	cf, err := db.OpenColumnFamily(cfOpts)
+	if err != nil {
+		log.Printf("open column family failed: %v", err)
+		return
+	}
+	log.Printf("sync db %s", logErr(cf.Sync()))
+}
+
+// Open implements DB
+func (s *lotusdbDB) Open(path string) (err error) {
+	s.path = path
+	if s.db, err = lotusdb.Open(lotusdb.DefaultOptions(path)); err != nil {
+		return err
+	}
+	if s.indexDb, err = lotusdb.Open(lotusdb.DefaultOptions(path + ".index")); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+type pebbleDB struct {
+	db      *pebble.DB // Primary data
+	indexDb *pebble.DB // Index data
+}
+
+func (s *pebbleDB) Walk(walker func(key, val []byte) error) error {
+	iter := s.db.NewIter(nil)
+	defer iox.Close(iter)
+	for iter.First(); iter.Valid(); iter.Next() {
+		if err := walker(iter.Key(), iter.Value()); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// GetVal implements DB
+func (s *pebbleDB) GetVal(key []byte) ([]byte, io.Closer, error) { return s.db.Get(key) }
+
+// SetVal implements DB
+func (s *pebbleDB) SetVal(key []byte, val []byte) error { return s.db.Set(key, val, pebble.NoSync) }
+
+// SetIndex implements DB
+func (s *pebbleDB) SetIndex(key, val []byte) error { return s.indexDb.Set(key, val, pebble.NoSync) }
+
+// GetIndex implements DB
+func (s *pebbleDB) GetIndex(key []byte) ([]byte, io.Closer, error) { return s.indexDb.Get(key) }
+
+// Close implements DB
+func (s *pebbleDB) Close() error { return multierr.Append(s.db.Close(), s.indexDb.Close()) }
+
+// Flush implements DB
+func (s *pebbleDB) Flush() {
+	log.Printf("flush db result %v", logErr(s.db.Flush()))
+	log.Printf("flush index result %v", logErr(s.indexDb.Flush()))
+}
+
+// Open implements DB
+func (s *pebbleDB) Open(path string) (err error) {
+	if s.db, err = pebble.Open(path, &pebble.Options{}); err != nil {
+		return err
+	}
+
+	if s.indexDb, err = pebble.Open(path+".index", &pebble.Options{}); err != nil {
+		return err
+	}
+	return nil
+}
+
+type server struct {
+	DB
+	flushNotify chan struct{}
 }
 
 // Ignores arrays
@@ -102,7 +235,7 @@ func (s server) index(id string, doc H, reindex bool) {
 	pv := getPathValues(doc, "")
 
 	for _, pathValue := range pv {
-		idsString, closer, err := s.indexDb.Get([]byte(pathValue))
+		idsString, closer, err := s.GetIndex([]byte(pathValue))
 		if err != nil && err != pebble.ErrNotFound {
 			log.Printf("Could not look up pathvalue %s in [%#v]: %v", pathValue, doc, err)
 		}
@@ -119,7 +252,7 @@ func (s server) index(id string, doc H, reindex bool) {
 		}
 
 		iox.Close(closer)
-		if err = s.indexDb.Set([]byte(pathValue), idsString, pebble.NoSync); err != nil {
+		if err = s.SetIndex([]byte(pathValue), idsString); err != nil {
 			log.Printf("Could not update index: %s", err)
 		}
 	}
@@ -135,7 +268,7 @@ func (s *server) addDoc(w http.ResponseWriter, r *http.Request, _ httprouter.Par
 	s.index(id, doc, false)
 
 	bs, _ := json.Marshal(doc)
-	if err := s.db.Set([]byte(id), bs, pebble.NoSync); err != nil {
+	if err := s.SetVal([]byte(id), bs); err != nil {
 		return err
 	}
 	s.notifyFlush()
@@ -313,7 +446,7 @@ func parseQuery(q string) (*query, error) {
 }
 
 func (s server) getDocumentByID(id []byte) (H, error) {
-	valBytes, closer, err := s.db.Get(id)
+	valBytes, closer, err := s.GetVal(id)
 	defer iox.Close(closer)
 	if err != nil {
 		return nil, err
@@ -328,7 +461,7 @@ func UnmarshalJSON(valBytes []byte) (doc H, err error) {
 }
 
 func (s server) lookup(pathValue string) ([]string, error) {
-	idsString, closer, err := s.indexDb.Get([]byte(pathValue))
+	idsString, closer, err := s.GetIndex([]byte(pathValue))
 	if err != nil && err != pebble.ErrNotFound {
 		return nil, fmt.Errorf("could not look up pathvalue [%#v]: %s", pathValue, err)
 	}
@@ -387,24 +520,18 @@ func (s server) searchDocs(w http.ResponseWriter, r *http.Request, _ httprouter.
 			doc, err := s.getDocumentByID([]byte(id))
 			if err != nil {
 				return err
-			}
-
-			if !isRange || q.match(doc) {
+			} else if !isRange || q.match(doc) {
 				docs = append(docs, H{"id": id, "body": doc})
 			}
 		}
 	} else {
-		iter := s.db.NewIter(nil)
-		defer iox.Close(iter)
-		for iter.First(); iter.Valid(); iter.Next() {
-			doc, err := UnmarshalJSON(iter.Value())
-			if err != nil {
-				return err
+		if err := s.Walk(func(key, val []byte) error {
+			if doc, err := UnmarshalJSON(val); err == nil && q.match(doc) {
+				docs = append(docs, H{"id": string(key), "body": doc})
 			}
-
-			if q.match(doc) {
-				docs = append(docs, H{"id": string(iter.Key()), "body": doc})
-			}
+			return err
+		}); err != nil {
+			return err
 		}
 	}
 
@@ -421,15 +548,14 @@ func (s server) getDoc(w http.ResponseWriter, _ *http.Request, ps httprouter.Par
 }
 
 func (s server) reindex() {
-	iter := s.db.NewIter(nil)
-	defer iox.Close(iter)
-	for iter.First(); iter.Valid(); iter.Next() {
-		doc, err := UnmarshalJSON(iter.Value())
+	s.Walk(func(key, val []byte) error {
+		doc, err := UnmarshalJSON(val)
 		if err != nil {
-			log.Printf("Unable to parse bad document, %s: %s", string(iter.Key()), err)
+			log.Printf("Unable to parse bad document, %s: %s", key, err)
 		}
-		s.index(string(iter.Key()), doc, true)
-	}
+		s.index(string(key), doc, true)
+		return nil
+	})
 }
 
 func (s *server) notifyFlush() {
@@ -453,16 +579,11 @@ func (s *server) flushing() {
 			dirty = true
 		case <-idleTimeout.C:
 			if dirty {
-				s.flush()
+				s.Flush()
 				dirty = false
 			}
 		}
 	}
-}
-
-func (s *server) flush() {
-	log.Printf("flush db result %v", logErr(s.db.Flush()))
-	log.Printf("flush index result %v", logErr(s.indexDb.Flush()))
 }
 
 func logErr(err error) string {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"sort"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -82,6 +83,9 @@ func Test_getPathValues(t *testing.T) {
 	for _, test := range tests {
 		pvs := getPathValues(test.obj, test.prefix)
 		assert.Equal(t, len(test.expectedPvs), len(pvs))
+
+		sort.Strings(test.expectedPvs)
+		sort.Strings(pvs)
 		assert.Equal(t, test.expectedPvs, pvs)
 	}
 }
