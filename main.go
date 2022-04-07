@@ -461,6 +461,13 @@ func (s *server) flushing() {
 }
 
 func (s *server) flush() {
-	log.Printf("flush db result: %v", s.db.Flush())
-	log.Printf("flush index result: %v", s.indexDb.Flush())
+	log.Printf("flush db result %v", logErr(s.db.Flush()))
+	log.Printf("flush index result %v", logErr(s.indexDb.Flush()))
+}
+
+func logErr(err error) string {
+	if err == nil {
+		return "successfully"
+	}
+	return "failed: " + err.Error()
 }
