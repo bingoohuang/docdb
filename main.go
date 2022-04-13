@@ -16,22 +16,22 @@ import (
 	"github.com/bingoohuang/gg/pkg/iox"
 	"github.com/bingoohuang/gg/pkg/ss"
 	"github.com/bingoohuang/gg/pkg/uid"
-	"github.com/flower-corp/lotusdb"
-	"go.uber.org/multierr"
-
 	"github.com/cockroachdb/pebble"
 	"github.com/julienschmidt/httprouter"
 )
 
 func main() {
 	pPort := fla9.Int("port,p", 8080, "Listen port")
-	pImpl := fla9.String("impl", "pebble", "pebble/lotusdb")
+	pImpl := fla9.String("impl", "pebble", "pebble,p/lotusdb,l/pogreb,g")
 	fla9.Parse()
 
 	var db DB
 	var path string
 
 	switch *pImpl {
+	case "pogreb", "g":
+		db = &pogrebDB{}
+		path = "pogreb"
 	case "pebble", "p":
 		db = &pebbleDB{}
 		path = "pebble"
@@ -86,123 +86,6 @@ type DB interface {
 	SetVal(key, val []byte) error
 	Walk(walker func(key, val []byte) error) error
 	Flush()
-}
-
-type lotusdbDB struct {
-	path    string
-	db      *lotusdb.LotusDB // Primary data
-	indexDb *lotusdb.LotusDB // Index data
-}
-
-// Walk implements DB
-func (s *lotusdbDB) Walk(walker func(key []byte, val []byte) error) error {
-	return nil
-}
-
-// GetVal implements DB
-func (s *lotusdbDB) GetVal(key []byte) (val []byte, closer io.Closer, err error) {
-	val, err = s.db.Get(key)
-	return
-}
-
-// SetVal implements DB
-func (s *lotusdbDB) SetVal(key []byte, val []byte) error { return s.db.Put(key, val) }
-
-// SetIndex implements DB
-func (s *lotusdbDB) SetIndex(key, val []byte) error { return s.indexDb.Put(key, val) }
-
-// GetIndex implements DB
-func (s *lotusdbDB) GetIndex(key []byte) (val []byte, closer io.Closer, err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			log.Printf("recover from key %s", key)
-		}
-	}()
-
-	val, err = s.indexDb.Get(key)
-	return
-}
-
-// Close implements DB
-func (s *lotusdbDB) Close() error { return multierr.Append(s.db.Close(), s.indexDb.Close()) }
-
-// Flush implements DB
-func (s *lotusdbDB) Flush() {
-	s.flush(s.db, s.path)
-	s.flush(s.indexDb, s.path+".index")
-}
-
-func (s *lotusdbDB) flush(db *lotusdb.LotusDB, path string) {
-	cfOpts := lotusdb.DefaultOptions(path).CfOpts
-	cfOpts.CfName = lotusdb.DefaultColumnFamilyName
-	cf, err := db.OpenColumnFamily(cfOpts)
-	if err != nil {
-		log.Printf("open column family failed: %v", err)
-		return
-	}
-	log.Printf("sync db %s", logErr(cf.Sync()))
-}
-
-// Open implements DB
-func (s *lotusdbDB) Open(path string) (err error) {
-	s.path = path
-	if s.db, err = lotusdb.Open(lotusdb.DefaultOptions(path)); err != nil {
-		return err
-	}
-	if s.indexDb, err = lotusdb.Open(lotusdb.DefaultOptions(path + ".index")); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-type pebbleDB struct {
-	db      *pebble.DB // Primary data
-	indexDb *pebble.DB // Index data
-}
-
-func (s *pebbleDB) Walk(walker func(key, val []byte) error) error {
-	iter := s.db.NewIter(nil)
-	defer iox.Close(iter)
-	for iter.First(); iter.Valid(); iter.Next() {
-		if err := walker(iter.Key(), iter.Value()); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// GetVal implements DB
-func (s *pebbleDB) GetVal(key []byte) ([]byte, io.Closer, error) { return s.db.Get(key) }
-
-// SetVal implements DB
-func (s *pebbleDB) SetVal(key []byte, val []byte) error { return s.db.Set(key, val, pebble.NoSync) }
-
-// SetIndex implements DB
-func (s *pebbleDB) SetIndex(key, val []byte) error { return s.indexDb.Set(key, val, pebble.NoSync) }
-
-// GetIndex implements DB
-func (s *pebbleDB) GetIndex(key []byte) ([]byte, io.Closer, error) { return s.indexDb.Get(key) }
-
-// Close implements DB
-func (s *pebbleDB) Close() error { return multierr.Append(s.db.Close(), s.indexDb.Close()) }
-
-// Flush implements DB
-func (s *pebbleDB) Flush() {
-	log.Printf("flush db result %v", logErr(s.db.Flush()))
-	log.Printf("flush index result %v", logErr(s.indexDb.Flush()))
-}
-
-// Open implements DB
-func (s *pebbleDB) Open(path string) (err error) {
-	if s.db, err = pebble.Open(path, &pebble.Options{}); err != nil {
-		return err
-	}
-
-	if s.indexDb, err = pebble.Open(path+".index", &pebble.Options{}); err != nil {
-		return err
-	}
-	return nil
 }
 
 type server struct {

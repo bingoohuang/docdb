@@ -5,6 +5,7 @@ go 1.18
 replace go.etcd.io/bbolt => github.com/flower-corp/bbolt v1.3.7-0.20220315040627-32fed02add8f
 
 require (
+	github.com/akrylysov/pogreb v0.10.1
 	github.com/bingoohuang/gg v0.0.0-20220401032752-6d4a79888f0e
 	github.com/cockroachdb/pebble v0.0.0-20220331220335-53fd136b2293
 	github.com/flower-corp/lotusdb v1.0.0
