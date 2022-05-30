@@ -1,10 +1,11 @@
 package main
 
 import (
-	"github.com/flower-corp/lotusdb"
-	"go.uber.org/multierr"
 	"io"
 	"log"
+
+	"github.com/flower-corp/lotusdb"
+	"go.uber.org/multierr"
 )
 
 type lotusdbDB struct {

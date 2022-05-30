@@ -5,15 +5,16 @@ go 1.18
 replace go.etcd.io/bbolt => github.com/flower-corp/bbolt v1.3.7-0.20220315040627-32fed02add8f
 
 require (
-	github.com/akrylysov/pogreb v0.10.1
-	github.com/bingoohuang/gg v0.0.0-20220401032752-6d4a79888f0e
-	github.com/cockroachdb/pebble v0.0.0-20220331220335-53fd136b2293
-	github.com/flower-corp/lotusdb v1.0.0
+	github.com/akrylysov/pogreb v0.10.2-0.20210824133903-45965ac39dfd
+	github.com/bingoohuang/gg v0.0.0-20220527075033-53c4f07e0da6
+	github.com/cockroachdb/pebble v0.0.0-20220527231317-d5bc42c2884b
+	github.com/flower-corp/lotusdb v1.0.1-0.20220528015710-49f16771b85e
 	github.com/julienschmidt/httprouter v1.3.0
 	github.com/stretchr/testify v1.7.1
 )
 
 require (
+	github.com/HdrHistogram/hdrhistogram-go v1.1.2 // indirect
 	go.etcd.io/bbolt v1.3.6 // indirect
 	go.uber.org/atomic v1.7.0 // indirect
 )
@@ -36,5 +37,5 @@ require (
 	go.uber.org/multierr v1.8.0
 	golang.org/x/exp v0.0.0-20200513190911-00229845015e // indirect
 	golang.org/x/sys v0.0.0-20211210111614-af8b64212486 // indirect
-	gopkg.in/yaml.v3 v3.0.0-20210107192922-496545a6307b // indirect
+	gopkg.in/yaml.v3 v3.0.0 // indirect
 )

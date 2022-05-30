@@ -7,7 +7,7 @@ A simple Go document database. [blog: Writing a document database from scratch i
 1. `make install`
 2. Startup: `docdb`
 3. download [movie.json](https://github.com/prust/wikipedia-movie-data) by [gurl](https://github.com/bingoohuang/gurl): `gurl https://github.com/prust/wikipedia-movie-data/raw/master/movies.json`
-4. load movie.json into docdb: `sh scripts/load_array.sh movies.json` 
+4. load movie.json into docdb: `sh scripts/load_array.sh movies.json`
    1. 28795 (`jj -i movies.json #` or `jq length movies.json`) movie json, took 39m51s on my laptop.
    2. `jq -c '.[]' movies.json | gurl :8080/docs -n0 -pbv -r`, took 34m47s on my laptop.
    3. or `jj -I -i movies.json | gurl :8080/docs -n0 -r -pb`
@@ -20,7 +20,7 @@ A simple Go document database. [blog: Writing a document database from scratch i
 
 1. [pebble](https://github.com/cockroachdb/pebble)  `3.29s user 2.19s system 69% cpu 7.861 total`
 2. [lotusdb](https://github.com/flower-corp/lotusdb) `3.38s user 2.30s system 88% cpu 6.426 total`
-2. [pogreb](https://github.com/akrylysov/pogreb) `3.01s user 1.96s system 82% cpu 6.048 total`
+3. [pogreb](https://github.com/akrylysov/pogreb) `3.01s user 1.96s system 82% cpu 6.048 total`
 
 ## scripts
 

@@ -1,3 +1,4 @@
 docdb.*
 docdb
 *.json
+/.vscode
