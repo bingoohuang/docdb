@@ -1,11 +1,13 @@
 package main
 
 import (
+	"fmt"
+	"io"
+	"log"
+
 	"github.com/bingoohuang/gg/pkg/iox"
 	"github.com/cockroachdb/pebble"
 	"go.uber.org/multierr"
-	"io"
-	"log"
 )
 
 type pebbleDB struct {
@@ -14,7 +16,11 @@ type pebbleDB struct {
 }
 
 func (s *pebbleDB) Walk(walker func(key, val []byte) error) error {
-	iter := s.db.NewIter(nil)
+	iter, err := s.db.NewIter(nil)
+	if err != nil {
+		return fmt.Errorf("new iter: %w", err)
+	}
+
 	defer iox.Close(iter)
 	for iter.First(); iter.Valid(); iter.Next() {
 		if err := walker(iter.Key(), iter.Value()); err != nil {
