@@ -55,7 +55,7 @@ fmt:
 
 install: init
 	${goinstall}
-	upx --best --lzma ${gobin}/${app}
+	#upx --best --lzma ${gobin}/${app}
 	ls -lh ${gobin}/${app}
 linux: init
 	GOOS=linux GOARCH=amd64 ${goinstall}

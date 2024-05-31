@@ -8,15 +8,15 @@ A simple Go document database. [blog: Writing a document database from scratch i
 2. Startup: `docdb`
 3. download [movie.json](https://github.com/prust/wikipedia-movie-data) by [gurl](https://github.com/bingoohuang/gurl): `gurl https://github.com/prust/wikipedia-movie-data/raw/master/movies.json`
 4. load movie.json into docdb: `sh scripts/load_array.sh movies.json`
-   1. 28795 (`jj -i movies.json #` or `jq length movies.json`) movie json, took 39m51s on my laptop.
-   2. `jq -c '.[]' movies.json | gurl :8080/docs -n0 -pbv -r`, took 34m47s on my laptop.
-   3. or `jj -I -i movies.json | gurl :8080/docs -n0 -r -pb`
+   1. 28795 (`jj -i movies.json '#'` or `jq length movies.json`) movie json, took 39m51s on my laptop.
+   2. `jq -c '.[]' movies.json | gurl :8080/docs -n0 -pbU`, took 34m47s on my laptop.
+   3. or `jj -Iu -i movies.json | gurl :8080/docs -n0 -pbU`
    4. Asynchronous version, took 7s on my laptop.
 5. query: `gurl :8080/docs 'q==title:"New Life Rescue"'`
 
 ## pebble vs lotusdb vs pogreb
 
-28795 条 JSON 导入: `time (jj -I -i movies.json | gurl :8080/docs -n0 -r -pb)`
+28795 条 JSON 导入: `time (jj -Iu -i movies.json | gurl :8080/docs -n0 -pbU)`
 
 1. [pebble](https://github.com/cockroachdb/pebble)  `3.29s user 2.19s system 69% cpu 7.861 total`
 2. [lotusdb](https://github.com/flower-corp/lotusdb) `3.38s user 2.30s system 88% cpu 6.426 total`

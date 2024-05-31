@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -119,7 +120,7 @@ func (s server) index(id string, doc H, reindex bool) {
 
 	for _, pathValue := range pv {
 		idsString, closer, err := s.GetIndex([]byte(pathValue))
-		if err != nil && err != pebble.ErrNotFound {
+		if err != nil && !errors.Is(err, pebble.ErrNotFound) {
 			log.Printf("Could not look up pathvalue %s in [%#v]: %v", pathValue, doc, err)
 		}
 
@@ -433,7 +434,7 @@ func (s server) getDoc(w http.ResponseWriter, _ *http.Request, ps httprouter.Par
 }
 
 func (s server) reindex() {
-	s.Walk(func(key, val []byte) error {
+	err := s.Walk(func(key, val []byte) error {
 		doc, err := UnmarshalJSON(val)
 		if err != nil {
 			log.Printf("Unable to parse bad document, %s: %s", key, err)
@@ -441,6 +442,10 @@ func (s server) reindex() {
 		s.index(string(key), doc, true)
 		return nil
 	})
+	if err != nil {
+		log.Printf("reindex error: %v", err)
+		return
+	}
 }
 
 func (s *server) notifyFlush() {
