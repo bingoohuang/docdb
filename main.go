@@ -35,27 +35,27 @@ func main() {
 		log.Fatalf("open docdb.pebble failed: %v", err)
 	}
 
-	lotusdb := &lotusdbDB{}
-	if err := pebble.Open("docdb.lotusdb"); err != nil {
-		log.Fatalf("open docdb.lotusdb failed: %v", err)
+	otterCache := &OtterCache{}
+	if err := otterCache.Open(""); err != nil {
+		log.Fatalf("open OtterCache failed: %v", err)
 	}
 
-	defer iox.Close(pogreb, pebble, lotusdb)
+	defer iox.Close(pogreb, pebble)
 
 	s := &server{flushNotify: make(chan struct{})}
 
 	router := httprouter.New()
 	router.POST("/docs/pogreb", wrapHandler(s.addDoc(pogreb)))
 	router.POST("/docs/pebble", wrapHandler(s.addDoc(pebble)))
-	router.POST("/docs/lotusdb", wrapHandler(s.addDoc(lotusdb)))
+	router.POST("/docs/otter", wrapHandler(s.addDoc(otterCache)))
 
 	router.GET("/docs/pogreb", wrapHandler(s.searchDocs(pogreb)))
 	router.GET("/docs/pebble", wrapHandler(s.searchDocs(pebble)))
-	router.GET("/docs/lotusdb", wrapHandler(s.searchDocs(lotusdb)))
+	router.GET("/docs/otter", wrapHandler(s.searchDocs(otterCache)))
 
-	router.GET("/docss/pogreb/:id", wrapHandler(s.getDoc(pogreb)))
-	router.GET("/docss/pebble/:id", wrapHandler(s.getDoc(pebble)))
-	router.GET("/docss/lotusdb/:id", wrapHandler(s.getDoc(lotusdb)))
+	router.GET("/docs/pogreb/:id", wrapHandler(s.getDoc(pogreb)))
+	router.GET("/docs/pebble/:id", wrapHandler(s.getDoc(pebble)))
+	router.GET("/docs/otter/:id", wrapHandler(s.getDoc(otterCache)))
 
 	log.Printf("Listening on %d", *pPort)
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", *pPort), router))

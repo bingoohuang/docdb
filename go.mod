@@ -4,27 +4,26 @@ go 1.21
 
 toolchain go1.22.3
 
-replace go.etcd.io/bbolt => github.com/flower-corp/bbolt v1.3.7-0.20220315040627-32fed02add8f
-
 require (
 	github.com/akrylysov/pogreb v0.10.2
 	github.com/bingoohuang/gg v0.0.0-20240531020828-1fc72d0e46f0
 	github.com/cockroachdb/pebble v1.1.0
-	github.com/flower-corp/lotusdb v1.0.1-0.20220528015710-49f16771b85e
 	github.com/julienschmidt/httprouter v1.3.0
+	github.com/maypok86/otter v1.2.1
 	github.com/stretchr/testify v1.9.0
 )
 
 require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cockroachdb/tokenbucket v0.0.0-20230807174530-cc333fc44b06 // indirect
+	github.com/dolthub/maphash v0.1.0 // indirect
+	github.com/gammazero/deque v0.2.1 // indirect
 	github.com/getsentry/sentry-go v0.28.0 // indirect
 	github.com/prometheus/client_golang v1.19.1 // indirect
 	github.com/prometheus/client_model v0.6.1 // indirect
 	github.com/prometheus/common v0.53.0 // indirect
-	github.com/prometheus/procfs v0.15.0 // indirect
+	github.com/prometheus/procfs v0.15.1 // indirect
 	github.com/rogpeppe/go-internal v1.12.0 // indirect
-	go.etcd.io/bbolt v1.3.10 // indirect
 	golang.org/x/text v0.15.0 // indirect
 	google.golang.org/protobuf v1.34.1 // indirect
 )
@@ -44,7 +43,7 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	go.uber.org/multierr v1.11.0
-	golang.org/x/exp v0.0.0-20240530194437-404ba88c7ed0 // indirect
+	golang.org/x/exp v0.0.0-20240531132922-fd00a4e0eefc // indirect
 	golang.org/x/sys v0.20.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

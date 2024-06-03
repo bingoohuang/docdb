@@ -14,22 +14,28 @@ A simple Go document database. [blog: Writing a document database from scratch i
    4. Asynchronous version, took 7s on my laptop.
 5. query: `gurl :8080/docs 'q==title:"New Life Rescue"'`
 
-## pebble vs lotusdb vs pogreb
+## pebble vs pogreb
 
 28795 条 JSON 导入: `time (jj -Iu -i movies.json | gurl :8080/docs/pebble -n0 -pbUv)`
 
-1. [pebble](https://github.com/cockroachdb/pebble)  `3.29s user 2.19s system 69% cpu 7.861 total`
-2. [lotusdb](https://github.com/flower-corp/lotusdb) `3.38s user 2.30s system 88% cpu 6.426 total`
-3. [pogreb](https://github.com/akrylysov/pogreb) `3.01s user 1.96s system 82% cpu 6.048 total`
+1. [pebble](https://github.com/cockroachdb/pebble) ✅
+   1. `time (jj -Iu -i movies.json | gurl :8080/docs/pebble -n0 -pbUv)`
+   2.  12.03s user 9.91s system 27% cpu 1:19.77 total
+2. [pogreb](https://github.com/akrylysov/pogreb) ✅
+   1. `time (jj -Iu -i movies.json | gurl :8080/docs/pogreb -n0 -pbUv)`
+   2.  9.68s user 7.43s system 50% cpu 33.742 total
+3. [otter](https://github.com/maypok86/otter)
+   1. `time (jj -Iu -i movies.json | gurl :8080/docs/otter -n0 -pbUv)`
+   2. fail 卡住不动
 
 ## scripts
 
 Then in another terminal:
 
 ```bash
-$ curl -X POST -H 'Content-Type: application/json' -d '{"name": "Kevin", "age": "45"}' http://localhost:8080/docs
+$ curl -X POST -H 'Content-Type: application/json' -d '{"name": "Kevin", "age": "45"}' http://localhost:8080/docs/pebble
 {"body":{"id":"5ac64e74-58f9-4ba4-909e-1d5bf4ddcaa1"},"status":"ok"}
-$ curl --get http://localhost:8080/docs --data-urlencode 'q=name:"Kevin"' | jq
+$ curl --get http://localhost:8080/docs/pebble --data-urlencode 'q=name:"Kevin"' | jq
 {
   "body": {
     "count": 1,
