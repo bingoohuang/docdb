@@ -16,7 +16,7 @@ A simple Go document database. [blog: Writing a document database from scratch i
 
 ## pebble vs lotusdb vs pogreb
 
-28795 条 JSON 导入: `time (jj -Iu -i movies.json | gurl :8080/docs -n0 -pbU)`
+28795 条 JSON 导入: `time (jj -Iu -i movies.json | gurl :8080/docs/pebble -n0 -pbUv)`
 
 1. [pebble](https://github.com/cockroachdb/pebble)  `3.29s user 2.19s system 69% cpu 7.861 total`
 2. [lotusdb](https://github.com/flower-corp/lotusdb) `3.38s user 2.30s system 88% cpu 6.426 total`
