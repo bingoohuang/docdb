@@ -17,7 +17,6 @@ import (
 	"github.com/bingoohuang/gg/pkg/iox"
 	"github.com/bingoohuang/gg/pkg/ss"
 	"github.com/bingoohuang/gg/pkg/uid"
-	"github.com/cockroachdb/pebble"
 	"github.com/julienschmidt/httprouter"
 )
 
@@ -36,29 +35,34 @@ func main() {
 	}
 
 	otterCache := &OtterCache{}
-	if err := otterCache.Open(""); err != nil {
+	if err := otterCache.Open("docdb.otter"); err != nil {
 		log.Fatalf("open OtterCache failed: %v", err)
 	}
 
-	defer iox.Close(pogreb, pebble)
+	redkaDB := &RedkaDB{}
+	if err := redkaDB.Open("docdb.redka"); err != nil {
+		log.Fatalf("open redkaDB failed: %v", err)
+	}
+
+	defer iox.Close(pogreb, pebble, otterCache, redkaDB)
+
+	dbs := map[string]DB{
+		"redka":  redkaDB,
+		"pogreb": pogreb,
+		"pebble": pebble,
+		"otter":  otterCache,
+	}
 
 	s := &server{flushNotify: make(chan struct{})}
-
-	router := httprouter.New()
-	router.POST("/docs/pogreb", wrapHandler(s.addDoc(pogreb)))
-	router.POST("/docs/pebble", wrapHandler(s.addDoc(pebble)))
-	router.POST("/docs/otter", wrapHandler(s.addDoc(otterCache)))
-
-	router.GET("/docs/pogreb", wrapHandler(s.searchDocs(pogreb)))
-	router.GET("/docs/pebble", wrapHandler(s.searchDocs(pebble)))
-	router.GET("/docs/otter", wrapHandler(s.searchDocs(otterCache)))
-
-	router.GET("/docs/pogreb/:id", wrapHandler(s.getDoc(pogreb)))
-	router.GET("/docs/pebble/:id", wrapHandler(s.getDoc(pebble)))
-	router.GET("/docs/otter/:id", wrapHandler(s.getDoc(otterCache)))
+	r := httprouter.New()
+	for k, db := range dbs {
+		r.POST("/docs/"+k, wrapHandler(s.addDoc(db)))
+		r.GET("/docs/"+k, wrapHandler(s.searchDocs(db)))
+		r.GET("/docs/"+k+"/:id", wrapHandler(s.getDoc(db)))
+	}
 
 	log.Printf("Listening on %d", *pPort)
-	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", *pPort), router))
+	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", *pPort), r))
 }
 
 // H is alias for map[string]any.
@@ -116,12 +120,15 @@ func getPathValues(obj H, prefix string) (pvs []string) {
 	return pvs
 }
 
+// ErrNotFound means that a get or delete call did not find the requested key.
+var ErrNotFound = errors.New("not found")
+
 func (s server) index(db DB, id string, doc H, reindex bool) {
 	pv := getPathValues(doc, "")
 
 	for _, pathValue := range pv {
 		idsString, closer, err := db.GetIndex([]byte(pathValue))
-		if err != nil && !errors.Is(err, pebble.ErrNotFound) {
+		if err != nil && !errors.Is(err, ErrNotFound) {
 			log.Printf("Could not look up pathvalue %s in [%#v]: %v", pathValue, doc, err)
 		}
 
@@ -334,7 +341,7 @@ func parseQuery(q string) (*query, error) {
 	return &parsed, nil
 }
 
-func (s server) getDocumentByID(db DB, id []byte) (H, error) {
+func (s server) getDocByID(db DB, id []byte) (H, error) {
 	valBytes, closer, err := db.GetVal(id)
 	defer iox.Close(closer)
 	if err != nil {
@@ -351,7 +358,7 @@ func UnmarshalJSON(valBytes []byte) (doc H, err error) {
 
 func (s server) lookup(db DB, pathValue string) ([]string, error) {
 	idsString, closer, err := db.GetIndex([]byte(pathValue))
-	if err != nil && err != pebble.ErrNotFound {
+	if err != nil {
 		return nil, fmt.Errorf("could not look up pathvalue [%#v]: %s", pathValue, err)
 	}
 	defer iox.Close(closer)
@@ -407,7 +414,7 @@ func (s server) searchDocs(db DB) func(w http.ResponseWriter, r *http.Request, _
 		}
 		if len(idsInAll) > 0 {
 			for _, id := range idsInAll {
-				doc, err := s.getDocumentByID(db, []byte(id))
+				doc, err := s.getDocByID(db, []byte(id))
 				if err != nil {
 					return err
 				} else if !isRange || q.match(doc) {
@@ -431,7 +438,7 @@ func (s server) searchDocs(db DB) func(w http.ResponseWriter, r *http.Request, _
 
 func (s server) getDoc(db DB) func(w http.ResponseWriter, _ *http.Request, ps httprouter.Params) error {
 	return func(w http.ResponseWriter, _ *http.Request, ps httprouter.Params) error {
-		doc, err := s.getDocumentByID(db, []byte(ps.ByName("id")))
+		doc, err := s.getDocByID(db, []byte(ps.ByName("id")))
 		if err != nil {
 			return err
 		}

@@ -2,9 +2,9 @@ package main
 
 import (
 	"fmt"
-	"github.com/cockroachdb/pebble"
-	"github.com/maypok86/otter"
 	"io"
+
+	"github.com/maypok86/otter"
 )
 
 type OtterCache struct {
@@ -36,7 +36,7 @@ func (o *OtterCache) Open(string) error {
 func (o OtterCache) GetIndex(key []byte) ([]byte, io.Closer, error) {
 	val, ok := o.Cache.Get("_index_" + string(key))
 	if !ok {
-		return nil, o, pebble.ErrNotFound
+		return nil, o, ErrNotFound
 	}
 
 	return []byte(val), nil, nil
@@ -53,7 +53,7 @@ func (o OtterCache) SetIndex(key, val []byte) error {
 func (o OtterCache) GetVal(key []byte) ([]byte, io.Closer, error) {
 	val, ok := o.Cache.Get(string(key))
 	if !ok {
-		return nil, o, pebble.ErrNotFound
+		return nil, o, ErrNotFound
 	}
 
 	return []byte(val), nil, nil

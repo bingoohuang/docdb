@@ -16,7 +16,7 @@ A simple Go document database. [blog: Writing a document database from scratch i
 
 ## pebble vs pogreb
 
-28795 条 JSON 导入: `time (jj -Iu -i movies.json | gurl :8080/docs/pebble -n0 -pbUv)`
+36257 条 JSON 导入: `time (jj -Iu -i movies.json | gurl :8080/docs/pebble -n0 -pbUv)`
 
 1. [pebble](https://github.com/cockroachdb/pebble) ✅
    1. `time (jj -Iu -i movies.json | gurl :8080/docs/pebble -n0 -pbUv)`
@@ -26,7 +26,10 @@ A simple Go document database. [blog: Writing a document database from scratch i
    2.  9.68s user 7.43s system 50% cpu 33.742 total
 3. [otter](https://github.com/maypok86/otter)
    1. `time (jj -Iu -i movies.json | gurl :8080/docs/otter -n0 -pbUv)`
-   2. fail 卡住不动
+   2. fail 卡住不动3. 
+4. [redka](github.com/nalgeon/redka)✅
+   1. `time (jj -Iu -i movies.json | gurl :8080/docs/redka -n0 -pbUv)`
+   2. 14.28s user 12.16s system 7% cpu 5:46.80 total
 
 ## scripts
 
@@ -51,7 +54,7 @@ $ curl --get http://localhost:8080/docs/pebble --data-urlencode 'q=name:"Kevin"'
   },
   "status": "ok"
 }
-$ curl --get http://localhost:8080/docs --data-urlencode 'q=age:<50' | jq
+$ curl --get http://localhost:8080/docs/pebble --data-urlencode 'q=age:<50' | jq
 {
   "body": {
     "count": 1,
@@ -72,7 +75,7 @@ $ curl --get http://localhost:8080/docs --data-urlencode 'q=age:<50' | jq
 ## gurl
 
 ```sh
-🕙[2022-04-02 22:19:12.360] ❯ gurl POST :8080/docs name=Kevin age:=45 -pb
+🕙[2022-04-02 22:19:12.360] ❯ gurl POST :8080/docs/pebble name=Kevin age:=45 -pb
 {
   "body": {
     "id": "27FHzv8h0T8gx1Qcy9ZR8qGMI4c"
@@ -80,7 +83,7 @@ $ curl --get http://localhost:8080/docs --data-urlencode 'q=age:<50' | jq
   "status": "ok"
 }
 
-🕙[2022-04-02 22:19:39.922] ❯ gurl :8080/docs q==name:Kevin -pb
+🕙[2022-04-02 22:19:39.922] ❯ gurl :8080/docs/pebble q==name:Kevin -pb
 {
   "body": {
     "count": 1,
@@ -97,7 +100,7 @@ $ curl --get http://localhost:8080/docs --data-urlencode 'q=age:<50' | jq
   "status": "ok"
 }
 
-🕙[2022-04-02 22:20:36.344] ❯ gurl :8080/docs 'q==age:<50' -pb
+🕙[2022-04-02 22:20:36.344] ❯ gurl :8080/docs/pebble 'q==age:<50' -pb
 {
   "body": {
     "count": 1,
@@ -114,7 +117,7 @@ $ curl --get http://localhost:8080/docs --data-urlencode 'q=age:<50' | jq
   "status": "ok"
 }
 
-🕙[2022-04-02 22:21:12.931] ❯ gurl :8080/docs q=='age:<40' -pb
+🕙[2022-04-02 22:21:12.931] ❯ gurl :8080/docs/pebble q=='age:<40' -pb
 {
   "body": {
     "count": 0,

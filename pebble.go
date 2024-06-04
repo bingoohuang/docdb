@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -40,7 +41,14 @@ func (s *pebbleDB) SetVal(key []byte, val []byte) error { return s.db.Set(key, v
 func (s *pebbleDB) SetIndex(key, val []byte) error { return s.indexDb.Set(key, val, pebble.NoSync) }
 
 // GetIndex implements DB
-func (s *pebbleDB) GetIndex(key []byte) ([]byte, io.Closer, error) { return s.indexDb.Get(key) }
+func (s *pebbleDB) GetIndex(key []byte) ([]byte, io.Closer, error) {
+	val, closer, err := s.indexDb.Get(key)
+	if errors.Is(err, pebble.ErrNotFound) {
+		return nil, nil, ErrNotFound
+	}
+
+	return val, closer, err
+}
 
 // Close implements DB
 func (s *pebbleDB) Close() error { return multierr.Append(s.db.Close(), s.indexDb.Close()) }
